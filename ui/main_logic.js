@@ -129,6 +129,8 @@ const TIMETORESET = 500;
 let CurrentQuickSearch = "";
 let CurrentQuickSearchTime = 100;
 let CurrentQuickSearchTimer = null;
+let IsAnalyzerOpen = false;
+let ArrDisks = [];
 
 /* Colors  */
 let PrimaryColor = "#3f4352";
@@ -212,7 +214,7 @@ async function stopFullSearch() {
   await stopSearching();
 }
 
-document.addEventListener("keydown", async (e) => {
+document.addEventListener("keyup", async (e) => {
   if (IsAltDown == true) return;
   if (IsMetaDown == true) return;
   if (IsCtrlDown == true) return;
@@ -1748,7 +1750,7 @@ async function setCurrentDir(currentDir = "", dualPaneSide = "") {
 
 function updateCurrentPath(currentDir, dualPaneSide) {
   try {
-    CurrentDir = currentDir;
+    CurrentDir = currentDir.replace("\\", "/");
     let currentDirContainer = document.querySelector(".current-path");
     currentDirContainer.innerHTML = "";
     let currentPathTracker = "/";
@@ -1871,7 +1873,7 @@ async function copyItem(item, toCut = false, fromInternal = false) {
     }
   }
   ContextMenu.style.display = "none";
-  await writeText(CopyFilePath);
+  await writeText(CopyFilePath.replace("\\", "/"));
   if (toCut == true) {
     IsCopyToCut = true;
   } else {
@@ -1883,7 +1885,7 @@ async function extractItem(item) {
   let compressFilePath = item.getAttribute("itempath");
   let compressFileName = compressFilePath
     .split("/")
-    [compressFilePath.split("/").length - 1].replace("'", "");
+  [compressFilePath.split("/").length - 1].replace("'", "");
   ContextMenu.style.display = "none";
   let isExtracting = await confirmPopup(
     "Do you want to extract " + compressFileName + "?",
@@ -2041,9 +2043,8 @@ function showInputPopup(msg) {
   popup.className = "input-popup input-dialog uni-popup";
   popup.children[1].addEventListener("keyup", async (e) => {
     if (e.keyCode == 13) {
-      await openDirAndSwitch(popup.children[1].value);
-      await listDirectories();
       closeInputPopup();
+      await openDirAndSwitch(popup.children[1].value);
     }
   });
   body.append(popup);
@@ -2054,12 +2055,17 @@ function showInputPopup(msg) {
     resetEverything();
     IsInputFocused = false;
   });
+  updateCurrentPath();
 }
 
 function closeInputPopup() {
-  $(".input-popup").remove();
-  IsPopUpOpen = false;
-  IsInputFocused = false;
+  try {
+    $(".input-popup")?.remove();
+    IsPopUpOpen = false;
+    IsInputFocused = false;
+  } catch (e) {
+    writeLog(e);
+  }
 }
 
 async function itemMoveTo(isForDualPane = false) {
@@ -2468,8 +2474,12 @@ async function applyPlatformFeatures() {
   DefaultFolderIcon = await resolveResource("resources/folder-icon.png");
 }
 
+async function getDisks() {
+  return await invoke("list_disks");
+} 
+
 async function listDisks() {
-  await invoke("list_disks").then((disks) => {
+  await getDisks().then((disks) => {
     IsShowDisks = true;
     document.querySelector(".disk-list-column-header").style.display = "block";
     document.querySelector(".normal-list-column-header").style.display = "none";
@@ -2883,7 +2893,7 @@ function goUp(isSwitched = false, toFirst = false) {
             selectedItemIndex = LeftPaneItemIndex;
             element =
               LeftPaneItemCollection.querySelectorAll(".item-link")[
-                selectedItemIndex
+              selectedItemIndex
               ];
           } else if (parseInt(selectedItemIndex) < 1) {
             selectedItemIndex = 0;
@@ -2892,7 +2902,7 @@ function goUp(isSwitched = false, toFirst = false) {
             selectedItemIndex = parseInt(selectedItemIndex) - 1;
             element =
               LeftPaneItemCollection.querySelectorAll(".item-link")[
-                selectedItemIndex
+              selectedItemIndex
               ];
           }
           LeftPaneItemIndex = selectedItemIndex;
@@ -2902,7 +2912,7 @@ function goUp(isSwitched = false, toFirst = false) {
             selectedItemIndex = RightPaneItemIndex;
             element =
               RightPaneItemCollection.querySelectorAll(".item-link")[
-                selectedItemIndex
+              selectedItemIndex
               ];
           } else if (parseInt(selectedItemIndex) - 1 < 1) {
             selectedItemIndex = 0;
@@ -2911,7 +2921,7 @@ function goUp(isSwitched = false, toFirst = false) {
             selectedItemIndex = parseInt(selectedItemIndex) - 1;
             element =
               RightPaneItemCollection.querySelectorAll(".item-link")[
-                selectedItemIndex
+              selectedItemIndex
               ];
           }
           RightPaneItemIndex = selectedItemIndex;
@@ -2943,7 +2953,7 @@ function goUp(isSwitched = false, toFirst = false) {
       if (SelectedItemPaneSide == "left") {
         if (
           parseInt(selectedItemIndex) * 38 -
-            document.querySelector(".dual-pane-left").scrollTop <
+          document.querySelector(".dual-pane-left").scrollTop <
           10
         ) {
           document.querySelector(".dual-pane-left").scrollTop -= 38;
@@ -2951,7 +2961,7 @@ function goUp(isSwitched = false, toFirst = false) {
       } else if (SelectedItemPaneSide == "right") {
         if (
           parseInt(selectedItemIndex) * 38 -
-            document.querySelector(".dual-pane-right").scrollTop <
+          document.querySelector(".dual-pane-right").scrollTop <
           10
         ) {
           document.querySelector(".dual-pane-right").scrollTop -= 38;
@@ -2986,13 +2996,13 @@ function goDown() {
           LeftPaneItemCollection.querySelectorAll(".item-link").length - 1;
         element =
           LeftPaneItemCollection.querySelectorAll(".item-link")[
-            parseInt(selectedItemIndex)
+          parseInt(selectedItemIndex)
           ];
       } else {
         selectedItemIndex = parseInt(selectedItemIndex) + 1;
         element =
           LeftPaneItemCollection.querySelectorAll(".item-link")[
-            selectedItemIndex
+          selectedItemIndex
           ];
       }
       LeftPaneItemIndex = selectedItemIndex;
@@ -3005,13 +3015,13 @@ function goDown() {
           RightPaneItemCollection.querySelectorAll(".item-link").length - 1;
         element =
           RightPaneItemCollection.querySelectorAll(".item-link")[
-            selectedItemIndex
+          selectedItemIndex
           ];
       } else {
         selectedItemIndex = parseInt(selectedItemIndex) + 1;
         element =
           RightPaneItemCollection.querySelectorAll(".item-link")[
-            selectedItemIndex
+          selectedItemIndex
           ];
       }
       RightPaneItemIndex = selectedItemIndex;
@@ -3040,7 +3050,7 @@ function goDown() {
   if (SelectedItemPaneSide == "left") {
     if (
       parseInt(selectedItemIndex) * 38 -
-        document.querySelector(".dual-pane-left").scrollTop >
+      document.querySelector(".dual-pane-left").scrollTop >
       window.innerHeight - 150
     ) {
       document.querySelector(".dual-pane-left").scrollTop += 38;
@@ -3048,7 +3058,7 @@ function goDown() {
   } else if (SelectedItemPaneSide == "right") {
     if (
       parseInt(selectedItemIndex) * 38 -
-        document.querySelector(".dual-pane-right").scrollTop >
+      document.querySelector(".dual-pane-right").scrollTop >
       window.innerHeight - 150
     ) {
       document.querySelector(".dual-pane-right").scrollTop += 38;
@@ -3087,7 +3097,7 @@ async function setDiskDropdowns() {
   let rightDiskDropdown = document.querySelector(".right-disk-dropdown");
 
   // Get current disks
-  let disks = await invoke("list_disks");
+  let disks = getDisks();
 
   // reset current selection
   leftDiskDropdown.innerHTML = "";
@@ -3268,7 +3278,7 @@ async function searchFor(
     }, 250);
   } else {
     stopFullSearch();
-    alert("Type in a minimum of 2 characters");
+    confirmPopup("Type in a minimum of 2 characters");
   }
   IsSearching = false;
   IsFullSearching = false;
@@ -3349,6 +3359,7 @@ async function cancelSearch() {
 }
 
 async function switchView() {
+  closeAnalyzer();
   if (IsDualPaneEnabled == false) {
     if (ViewMode == "wrap") {
       document.querySelectorAll(".directory-list").forEach((list) => {
@@ -3370,6 +3381,7 @@ async function switchView() {
         .forEach((item) => (item.style.display = "flex"));
       document.querySelector(".list-column-header").style.display = "flex";
       $(".explorer-container")?.css("padding", "100px 10px 10px 10px");
+      $(".analyzer-container").css("margin-top", "90px");
       ViewMode = "column";
     } else if (ViewMode == "column") {
       document.querySelector(".list-column-header").style.display = "none";
@@ -3381,6 +3393,7 @@ async function switchView() {
       $(".explorer-container").css("padding", "10px 10px 0 10px");
       $(".file-searchbar").css("opacity", "0");
       $(".file-searchbar").css("pointer-events", "none");
+      $(".analyzer-container").css("margin-top", "55px");
       ViewMode = "miller";
     } else if (ViewMode == "miller") {
       document.querySelector(".explorer-container").style.width = "100%";
@@ -3407,6 +3420,7 @@ async function switchView() {
       $(".explorer-container")?.css("padding", "85px 20px 20px 20px");
       $(".file-searchbar").css("opacity", "1");
       $(".file-searchbar").css("pointer-events", "all");
+      $(".analyzer-container").css("margin-top", "55px");
       ViewMode = "wrap";
     }
     await invoke("switch_view", { viewMode: ViewMode });
@@ -3539,6 +3553,40 @@ function openSettings() {
     });
     IsDisableShortcuts = true;
     IsPopUpOpen = true;
+  }
+}
+
+function toggleAnalyzer() {
+  const conAnalyzer = new AnalyzerHalfed(ArrDisks);
+  const conAnalyzerBubble = new AnalyzerBubble(ArrDisks);
+  if (IsAnalyzerOpen == true) {
+    closeAnalyzer();
+  } else {
+    openAnalyzer();
+  }
+}
+
+function openAnalyzer() {
+  IsAnalyzerOpen = true;
+  $(".analyzer-container").css("display", "flex");
+  if (ViewMode == "miller") {
+    $(".miller-container").css("display", "none");
+  } else {
+    $(".explorer-container").css("display", "none");
+  }
+}
+
+async function closeAnalyzer() {
+  if (IsAnalyzerOpen == false) return;
+  let shouldClose = await confirmPopup("Do you want to close analyzer?");
+  if (!shouldClose) return;
+  IsAnalyzerOpen = false;
+  $(".analyzer-container").css("display", "none");
+  if (ViewMode == "miller") {
+    $(".miller-container").css("display", "flex");
+    $(".miller-container.miller-column").css("display", "block");
+  } else {
+    $(".explorer-container").css("display", "block");
   }
 }
 
@@ -3972,11 +4020,11 @@ async function showFtpConfig() {
     IsPopUpOpen = true;
     document.querySelectorAll(".ftp-popup-input").forEach(
       (input) =>
-        (input.onkeyup = (e) => {
-          if (e.key === "Enter") {
-            connectToFtp();
-          }
-        }),
+      (input.onkeyup = (e) => {
+        if (e.key === "Enter") {
+          connectToFtp();
+        }
+      }),
     );
   }
 }
@@ -4353,15 +4401,15 @@ async function insertSiteNavButtons() {
       },
     );
 
-    let disks = await invoke("list_disks");
+    let disks = await getDisks();
     let siteNavButtons = [
       Platform.includes("darwin")
         ? [
-            "Applications",
-            "/Applications",
-            "fa-solid fa-rocket",
-            async () => await openDirAndSwitch("/Applications"),
-          ]
+          "Applications",
+          "/Applications",
+          "fa-solid fa-rocket",
+          async () => await openDirAndSwitch("/Applications"),
+        ]
         : [],
       [
         "Desktop",
@@ -4871,4 +4919,6 @@ async function handleMountChanges() {
   await getSetInstalledApplications();
   await checkAppConfig();
   await insertSiteNavButtons();
+  ArrDisks = await getDisks();
+  toggleAnalyzer();
 })();

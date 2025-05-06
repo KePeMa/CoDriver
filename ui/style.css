@@ -2245,3 +2245,28 @@ button > svg {
 .warbing-text {
     animation: warbing-text-anim 1.5s infinite;
 }
+
+.analyzer-container {
+    display: none;
+    height: 100vh;
+    justify-content: flex-end;
+    margin-top: 90px;
+    width: 100%;
+}
+
+.analyzer-container > div {
+    height: calc(100vh - 55px);
+    align-items: center;
+}
+
+#halfed-pie-chart {
+    width: 50%;
+    height: 100%;
+    margin-right: -25%;
+}
+
+#packed-bubble{
+    width: 75%;
+    justify-content: flex-start;
+    height: 100%;
+}

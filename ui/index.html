@@ -9,6 +9,9 @@
     <script src="contextmenu.js"></script>
     <script src="file_extensions.js" async></script>
     <script src="models.js" defer></script>
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <script src="https://code.highcharts.com/highcharts-more.js"></script>
+    <script src="analyzer.js" defer></script>
     <script src="main_logic.js" defer></script>
     <link rel="stylesheet" href="font-awesome/css/all.min.css" />
     <link rel="stylesheet" href="style.css" />
@@ -46,6 +49,7 @@
                     <button onclick="switchToDualPane()" class="switch-dualpane-view-button header-nav-button"><i
                             class="fa-solid fa-table-columns"></i></button>
                     <button onclick="openSettings()" class="header-nav-button"><i class="fa-solid fa-gear"></i></button>
+                    <button onclick="toggleAnalyzer()" class="header-nav-button"><i class="fa-solid fa-pie-chart"></i></button>
                     <div class="preloader-small-invert is-file-searching"></div>
                 </div>
                 <div data-tauri-drag-region class="header-nav-right-container"
@@ -106,6 +110,10 @@
                 </div>
                 <div class="miller-container">
                     <div class="explorer-container miller-col-1 miller-column" onclick="setMillerColActive(this)"></div>
+                </div>
+                <div class="analyzer-container">
+                    <div id="packed-bubble"></div>                  
+                    <div id="halfed-pie-chart"></div>
                 </div>
                 <div class="current-path"></div>
             </div>

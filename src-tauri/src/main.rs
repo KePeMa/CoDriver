@@ -109,8 +109,8 @@ fn main() {
 
             let _ = win.center();
 
-            #[cfg(not(target_os = "macos"))]
-            let _ = apply_acrylic(&win, Some((18, 18, 18, 125)));
+            // #[cfg(not(target_os = "macos"))]
+            // let _ = apply_acrylic(&win, Some((255, 255, 255, 50)));
             #[cfg(not(target_os = "macos"))]
             let _ = win.set_decorations(false);
 
