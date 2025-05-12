@@ -3556,7 +3556,7 @@ function openSettings() {
   }
 }
 
-function toggleAnalyzer() {
+async function toggleAnalyzer() {
   const conAnalyzer = new AnalyzerHalfed(ArrDisks);
   const conAnalyzerBubble = new AnalyzerBubble(ArrDisks);
   if (IsAnalyzerOpen == true) {

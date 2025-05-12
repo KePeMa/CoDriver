@@ -179,6 +179,7 @@ fn main() {
             get_sshfs_mounts,
             unmount_network_drive,
             unmount_drive,
+            get_disk_dirs,
         ])
         .plugin(tauri_plugin_drag::init())
         .run(tauri::generate_context!())
@@ -2092,4 +2093,91 @@ async fn unmount_drive(path: String) {
         .spawn();
     #[cfg(target_os = "linux")]
     let _ = Command::new("umount").arg(path).spawn();
+}
+#[tauri:: command]
+async fn get_disk_dirs(path: String) -> Vec<FDir> {
+    let mut dir_list: Vec<FDir> = Vec::new();
+    let current_dir = fs::read_dir(path);
+    if current_dir.is_err() {
+        return vec![];
+    }
+    for item in current_dir.unwrap() {
+        match item {
+            Ok(temp_item) => {
+                let name = &temp_item.file_name().into_string().unwrap();
+                let path = &temp_item
+                    .path()
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+                    .replace("\\", "/");
+                let file_ext = ".".to_string().to_owned()
+                    + path
+                        .split(".")
+                        .nth(&path.split(".").count() - 1)
+                        .unwrap_or("");
+                let file_data = fs::metadata(temp_item.path());
+                let file_date: String;
+                let size = temp_item.metadata().unwrap().len();
+                match file_data {
+                    Ok(file_data) => {
+                        let dt: DateTime<Local> = file_data.modified().unwrap().into();
+                        file_date = dt.to_string();
+                    }
+                    Err(_) => file_date = "-".into(),
+                }
+                let is_dir_int = match temp_item.path().is_dir() {
+                    true => 1,
+                    false => 0,
+                };
+                dir_list.push(FDir {
+                    name: String::from(name),
+                    is_dir: is_dir_int,
+                    path: String::from(path),
+                    extension: file_ext,
+                    size: get_dir_size(path.to_string(), &1).to_string(),
+                    last_modified: file_date.split(".").next().unwrap().into(),
+                });
+            }
+            _ => continue,
+        }
+    }
+    
+    // Standard sort them by name
+    dir_list.sort_by_key(|a| a.name.to_lowercase());
+    dir_list
+}
+
+static mut COUNT_HIT_SD: i32 = 0;
+
+fn get_dir_size(path: String, search_depth: &i32) -> u64 {
+    let current_dir = fs::read_dir(path);
+    unsafe {
+        if COUNT_HIT_SD >= *search_depth {
+            COUNT_HIT_SD = 0;
+            return 0;
+        }
+    }
+    if current_dir.is_err() {
+        return 0;
+    }
+    let mut total_size: u64 = 0;
+    for item in current_dir.unwrap() {
+        match item {
+            Ok(temp_item) => {
+                if temp_item.path().is_dir() {
+                    total_size += get_dir_size(temp_item.path().to_str().unwrap().to_string(), search_depth);
+                    continue;
+                }
+                else {
+                    let size = temp_item.metadata().unwrap().len();
+                    total_size += size;
+                    continue;
+                }
+            }
+            _ => continue,
+        }
+    }
+    unsafe { COUNT_HIT_SD += 1; }
+    total_size
 }
