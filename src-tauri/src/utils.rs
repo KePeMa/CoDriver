@@ -1,9 +1,9 @@
 use chrono::prelude::*;
 use color_print::cprintln;
-use regex::Regex;
 use serde::Serialize;
-use tauri::api::dialog;
+use std::env::current_dir;
 use std::fs::OpenOptions;
+use std::path::Path;
 use std::{
     ffi::OsStr,
     fmt::Debug,
@@ -11,33 +11,43 @@ use std::{
     io::{BufReader, BufWriter, Read, Write},
 };
 use stopwatch::Stopwatch;
-use sysinfo::System;
 use tar::Archive as TarArchive;
+use tauri::api::dialog;
 use tauri::api::path::config_dir;
 use tauri::Window;
+use tokio::sync::MutexGuard;
 
 #[allow(unused_imports)]
 use crate::ISCANCELED;
-use crate::{COUNT_CALLED_BACK, IS_SEARCHING, WINDOW};
+use crate::{COPY_COUNTER, IS_SEARCHING, TO_COPY_COUNTER, WINDOW};
 
-pub static mut COPY_COUNTER: f32 = 0.0;
-pub static mut TO_COPY_COUNTER: f32 = 0.0;
+pub fn success_log<S: Into<String>>(msg: S) {
+    let msg = msg.into();
+    cprintln!(
+        "[<white>{:?}</white> <green>SUC</green>] {}",
+        Local::now().format("%H:%M:%S").to_string(),
+        msg
+    );
+}
 
-pub fn dbg_log(msg: String, _line_no: String) {
+pub fn dbg_log<S: Into<String>>(msg: S) {
+    let msg = msg.into();
     cprintln!(
         "[<white>{:?}</white> DBG] {}",
         Local::now().format("%H:%M:%S").to_string(),
         msg
     );
 }
-pub fn wng_log(msg: String) {
+pub fn wng_log<S: Into<String>>(msg: S) {
+    let msg = msg.into();
     cprintln!(
         "[<white>{:?}</white> <yellow>WNG</yellow>] {}",
         Local::now().format("%H:%M:%S").to_string(),
         msg
     );
 }
-pub fn err_log(msg: String) {
+pub fn err_log<S: Into<String>>(msg: S) {
+    let msg = msg.into();
     cprintln!(
         "[<white>{:?}</white> <red>ERR</red>] {}",
         Local::now().format("%H:%M:%S").to_string(),
@@ -46,7 +56,8 @@ pub fn err_log(msg: String) {
     log(msg);
 }
 
-pub fn log(msg: String) {
+pub fn log<S: Into<String>>(msg: S) {
+    let msg = msg.into();
     let log = format!("\n[{}] {}", chrono::Local::now().format("%H:%M:%S"), msg);
     let log_file_path = config_dir()
         .unwrap()
@@ -63,16 +74,14 @@ pub fn log(msg: String) {
         .unwrap();
     let _ = file.write_all(log.as_bytes());
 
-    dbg_log(
-        format!(
-            "Written to: {} Log: {}",
-            log_file_path.to_str().unwrap(),
-            log
-        ),
-        dbg!("").into(),
-    );
+    dbg_log(format!(
+        "Written to: {} Log: {}",
+        log_file_path.to_str().unwrap(),
+        log
+    ));
 }
-pub fn copy_to(app_window: &Window, final_filename: String, from_path: String) {
+pub async fn copy_to(final_filename: String, from_path: String) {
+    let app_window = WINDOW.get().unwrap();
     let file = fs::metadata(&from_path).unwrap();
     if file.is_file() {
         // Prepare to copy file
@@ -85,14 +94,14 @@ pub fn copy_to(app_window: &Window, final_filename: String, from_path: String) {
         let mut speed: f64;
         let sw = Stopwatch::start_new();
         let mut progress: f32;
-        unsafe {
-            update_progressbar_2(
-                app_window,
-                (100.0 / TO_COPY_COUNTER) * COPY_COUNTER,
-                final_filename.split("/").last().unwrap(),
-            );
-            COPY_COUNTER += 1.0;
-        }
+        let mut copy_counter = COPY_COUNTER.lock().await;
+        let to_copy_counter = TO_COPY_COUNTER.lock().await;
+        update_progressbar_2(
+            app_window,
+            (100.0 / *to_copy_counter) * *copy_counter,
+            final_filename.split("/").last().unwrap(),
+        );
+        *copy_counter += 1.0;
         loop {
             match fr.read(&mut buf) {
                 Ok(ds) => {
@@ -104,21 +113,21 @@ pub fn copy_to(app_window: &Window, final_filename: String, from_path: String) {
                         Ok(_) => {
                             // Calculate transfer speed and progres
                             speed = calc_transfer_speed(s, sw.elapsed_ms());
-                            if speed.is_infinite() { speed = 0.0 }
+                            if speed.is_infinite() {
+                                speed = 0.0
+                            }
                             progress = (100.0 / file_size) * s as f32;
-                            unsafe {
-                                update_progressbar(
-                                    app_window,
-                                    progress,
-                                    format!("{}/{}", COPY_COUNTER, TO_COPY_COUNTER).as_str(),
-                                    speed,
-                                );
-                            };
-                        },
+                            update_progressbar(
+                                app_window,
+                                progress,
+                                format!("{}/{}", *copy_counter, *to_copy_counter).as_str(),
+                                speed,
+                            );
+                        }
                         Err(err) => {
                             dialog::message(WINDOW.get(), "Info", format!("{:?}", err.to_string()));
                             break;
-                        },
+                        }
                     }
                 }
                 Err(e) => {
@@ -135,7 +144,7 @@ pub fn copy_to(app_window: &Window, final_filename: String, from_path: String) {
             let path = entry.path();
             let relative_path = path.strip_prefix(&from_path).unwrap();
             let dest_file = final_filename.clone() + "/" + relative_path.to_str().unwrap();
-            copy_to(app_window, dest_file, path.to_str().unwrap().to_string());
+            Box::pin(copy_to(dest_file, path.to_str().unwrap().to_string())).await;
         }
     } else {
         wng_log(format!("Unsupported file type: {}", from_path));
@@ -323,36 +332,23 @@ impl DirWalker {
         }
     }
 
-    pub fn search(
+    pub async fn search(
         &mut self,
         path: &str,
         depth: u32,
         file_name: String,
         max_items: i32,
-        is_quick_search: bool,
+        _: bool,
         file_content: String,
         callback: &impl Fn(DirWalkerEntry),
-        app_window: &Window,
+        count_called_back: &mut MutexGuard<'_, i32>,
     ) {
-        let reg_exp: Regex;
-
-        if !self.exts.is_empty() {
-            reg_exp = Regex::new(format!("(?i){}", file_name).as_str()).unwrap();
-            println!(
-                "Searching with file extension: {} | regex: {}",
-                self.exts.first().unwrap(),
-                reg_exp.as_str()
-            );
-        } else {
-            reg_exp = Regex::new(format!("(?i){}.*", file_name).as_str()).unwrap();
-        }
-
+        let app_window = WINDOW.get().unwrap();
+        // let reg_exp: Regex;
         let mut count_of_checked_items: usize = 0;
 
         for entry in jwalk::WalkDir::new(path)
-            .parallelism(jwalk::Parallelism::RayonNewPool(
-                System::new().physical_core_count().unwrap_or(4) - 1,
-            ))
+            .parallelism(jwalk::Parallelism::RayonNewPool(num_cpus::get() - 1))
             .sort(true)
             .min_depth(0)
             .max_depth(depth as usize)
@@ -361,38 +357,15 @@ impl DirWalker {
         {
             count_of_checked_items += 1;
 
-            // End searching if interrupted through esc-key
-            unsafe {
-                if !IS_SEARCHING && COUNT_CALLED_BACK < max_items {
-                    dbg_log("Interrupted searching".into(), dbg!("").into());
-                    return;
-                }
-                if COUNT_CALLED_BACK >= max_items || !IS_SEARCHING {
-                    return;
-                }
-            }
-
             if entry.is_err() {
+                wng_log(format!("Skipped: {}", entry.err().unwrap()));
                 continue;
             }
 
             let entry = entry.unwrap();
-
+            let item_path = entry.file_name().to_str().unwrap_or("").to_lowercase();
             let name = entry.file_name().to_str().unwrap_or("").to_string();
             let path = entry.path();
-            let item_path = entry.file_name().to_str().unwrap_or("").to_lowercase();
-
-            // Show how many files have already been checked
-            let _ = app_window.eval(&format!(
-                "$('.file-searching-file-count').html('{} items found<br/><br/>{} items checked')",
-                unsafe { COUNT_CALLED_BACK },
-                count_of_checked_items
-            ));
-
-            // Exclude onedrive so the file explorer doesn't download stuff from it => TODO: Make it configurable in the future
-            if item_path.contains("onedrive") {
-                continue;
-            }
 
             let item_ext = ".".to_owned()
                 + &item_path
@@ -402,43 +375,57 @@ impl DirWalker {
                     .to_string()
                     .to_lowercase();
 
+            // Exclude some stuff
+            if item_path.contains("onedrive")
+                || name
+                    == current_dir()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string()
+                        .split("/")
+                        .last()
+                        .unwrap()
+                        .to_string()
+                || item_ext == ".declarations"
+                || item_ext == ".declarations_content"
+                || item_ext == ".resolved"
+                || item_ext == ".unlinked2"
+                || item_ext == ".linked"
+            {
+                continue;
+            }
+
+            unsafe {
+                // End searching if interrupted through esc-key
+                if IS_SEARCHING == false && **count_called_back < max_items {
+                    dbg_log(format!("Interrupted searching | {} items checked | {} items found | is searching: {}", count_of_checked_items, **count_called_back, IS_SEARCHING));
+                    return;
+                }
+                if **count_called_back >= max_items || IS_SEARCHING == false {
+                    return;
+                }
+            }
+
             let file_metadata = fs::metadata(&path);
             if file_metadata.is_err() {
                 return;
             }
 
-            let last_mod: DateTime<Utc> = file_metadata.unwrap().modified().unwrap().into();
+            let last_mod: DateTime<Local> = file_metadata.unwrap().modified().unwrap().into();
 
-            if !reg_exp.is_match(&name) {
-                continue;
-            }
+            let _ = app_window.emit("set-filesearch-currentfile", format!("{} ({})", name, format_bytes(fs::metadata(&path).unwrap().len())));
 
-            app_window
-                .eval(
-                    format!(
-                        "document.querySelector('.fullsearch-current-file').innerHTML = '{} ({})'",
-                        name,
-                        format_bytes(fs::metadata(&path).unwrap().len())
-                    )
-                    .as_str(),
-                )
-                .unwrap();
-
-            let is_match = reg_exp.is_match(&name);
             let is_with_exts = !self.exts.is_empty() && self.exts.contains(&item_ext);
-            let is_file = path.is_file();
-            let is_quick_search = is_quick_search;
 
-            if is_match && ((is_with_exts && is_file) || is_quick_search) {
+            let is_match = is_match_file(&name, &file_name, &is_with_exts);
+
+            if is_match {
                 // Search for file content
                 if !file_content.is_empty() {
                     let content = fs::read_to_string(&path).unwrap_or_else(|_| "".into());
                     // => TODO: Extend with line number of text occurence later on
                     if content.contains(&file_content) {
-                        dbg_log(
-                            format!("File found with file_content: {}", &name),
-                            dbg!("").into(),
-                        );
                         callback(DirWalkerEntry {
                             name,
                             path: path.to_string_lossy().to_string(),
@@ -449,10 +436,10 @@ impl DirWalker {
                             last_modified: format!("{:?}", last_mod),
                             size: fs::metadata(&path).unwrap().len(),
                         });
+                        **count_called_back += 1;
                     }
                 } else {
                     // Search w/o file content
-                    dbg_log(format!("File found: {}", &name), dbg!("").into());
                     callback(DirWalkerEntry {
                         name,
                         path: path.to_string_lossy().to_string(),
@@ -463,8 +450,11 @@ impl DirWalker {
                         last_modified: format!("{:?}", last_mod),
                         size: fs::metadata(&path).unwrap().len(),
                     });
+                    **count_called_back += 1;
                 }
             }
+
+            let _ = app_window.emit("set-filesearch-count", **count_called_back);
         }
     }
 
@@ -497,6 +487,29 @@ impl DirWalker {
 
     pub fn get_items(&self) -> Vec<DirWalkerEntry> {
         (*self.items).to_vec()
+    }
+}
+
+fn is_match_file(file_name: &str, search_input: &str, is_with_ext: &bool) -> bool {
+    let file_name_lower = file_name.to_lowercase();
+
+    let search = search_input.to_lowercase();
+    let terms = search
+        .split_whitespace()
+        .filter(|term| !term.is_empty())
+        .collect::<Vec<&str>>();
+
+    if !is_with_ext {
+        return terms.iter().all(|term| file_name_lower.contains(term));
+    } else {
+        let ext = Path::new(file_name)
+            .extension()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_lowercase();
+        return terms
+            .iter()
+            .all(|term| file_name_lower.contains(term) && file_name_lower.contains(&ext));
     }
 }
 
