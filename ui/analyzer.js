@@ -82,6 +82,8 @@ class AnalyzerBubble {
         let counter = 0;
         let lastCount = 1;
 
+        disks = [disks[0]]; // TODO: REMOVE!!!
+
         disks.forEach(async disk => {
             let dirs = await invoke("get_disk_dirs", { path: disk.path });
             dirs.sort((a, b) => b.size - a.size);
